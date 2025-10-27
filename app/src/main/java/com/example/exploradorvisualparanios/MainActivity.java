@@ -223,6 +223,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         }
     }
 
+    // Tomar foto
     private void takePhoto() {
         if (imageCapture == null) return;
 
