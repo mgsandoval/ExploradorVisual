@@ -2,10 +2,8 @@ package com.example.exploradorvisualparanios;
 
 import android.Manifest;
 import android.content.ContentValues;
-import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
-import android.graphics.ImageDecoder;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -20,12 +18,15 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.PickVisualMediaRequest;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.camera.core.AspectRatio;
 import androidx.camera.core.CameraSelector;
 import androidx.camera.core.ImageAnalysis;
+import androidx.camera.core.ImageCapture;
+import androidx.camera.core.ImageCaptureException;
 import androidx.camera.core.ImageProxy;
 import androidx.camera.core.Preview;
 import androidx.camera.lifecycle.ProcessCameraProvider;
@@ -41,7 +42,7 @@ import com.google.mlkit.vision.label.ImageLabeling;
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions;
 
 import java.io.IOException;
-import java.io.OutputStream;
+import java.text.SimpleDateFormat;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -54,27 +55,34 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class MainActivity extends AppCompatActivity implements TextToSpeech.OnInitListener {
 
     private static final float CONFIDENCE_THRESHOLD = 0.7f;
+    private static final String TAG = "MainActivity";
 
+    // Vistas
     private PreviewView previewView;
-    private TextView tvResultados;
-    private TextView tvDatoCurioso;
-    private CardView cardResultados;
-    private ImageButton btnTomarFoto;
-    private ImageButton btnAbrirGaleria;
-    private ImageButton btnAnalizar;
     private ImageView ivImagen;
-    private CardView cardImagen;
+    private ImageButton btnCloseImage, btnAbrirGaleria, btnTomarFoto, btnAnalizar;
+    private TextView tvResultados, tvDatoCurioso;
+    private CardView cardResultados;
 
+    // ML Kit y TTS
     private ImageLabeler imageLabeler;
+    private TextToSpeech tts;
     private Map<String, String> traducciones;
     private Map<String, String> datosCuriosos;
-    private TextToSpeech tts;
 
+    // CameraX
+    private ProcessCameraProvider cameraProvider;
+    private ImageCapture imageCapture;
+    private ImageAnalysis imageAnalysis;
     private ExecutorService cameraExecutor;
+
+    // Control de estado
     private final AtomicBoolean isProcessing = new AtomicBoolean(false);
     private boolean isAnalysisRunning = false;
-    private ProcessCameraProvider cameraProvider;
+    private enum AppState { LIVE_CAMERA, IMAGE_DISPLAY }
 
+    // --- ActivityResultLaunchers ---
+    // Para permisos
     private final ActivityResultLauncher<String> requestPermissionLauncher = registerForActivityResult(
             new ActivityResultContracts.RequestPermission(),
             isGranted -> {
@@ -84,65 +92,22 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                     Toast.makeText(this, "¡Necesitamos permiso de la cámara para funcionar!", Toast.LENGTH_LONG).show();
                 }
             });
-    private final ActivityResultLauncher<Intent> cameraLauncher = registerForActivityResult(
-            new ActivityResultContracts.StartActivityForResult(),
-            result -> {
-                if (result.getResultCode() == RESULT_OK) {
-                    Intent data = result.getData();
-                    if (data != null && data.getExtras() != null) {
-                        Bitmap imageBitmap = (Bitmap) data.getExtras().get("data");
-                        if (imageBitmap != null) {
-                            mostrarImagenYProcesar(imageBitmap);
-                            guardarImagenEnGaleria(imageBitmap);
-                        }
+
+    // Para la galería de fotos
+    private final ActivityResultLauncher<PickVisualMediaRequest> pickMedia =
+            registerForActivityResult(new ActivityResultContracts.PickVisualMedia(), uri -> {
+                if (uri != null) {
+                    try {
+                        InputImage image = InputImage.fromFilePath(this, uri);
+                        Bitmap bitmap = MediaStore.Images.Media.getBitmap(this.getContentResolver(), uri);
+                        ivImagen.setImageBitmap(bitmap);
+                        setAppState(AppState.IMAGE_DISPLAY); // Cambia al estado de visualización de imagen
+                        analizarImagenEstatica(image);
+                    } catch (IOException e) {
+                        Log.e(TAG, "Error al cargar la imagen de la galería", e);
                     }
-                }
-            });
-
-    private void guardarImagenEnGaleria(Bitmap bitmap) {
-        String fileName = "Explorador_" + System.currentTimeMillis() + ".jpg";
-        ContentValues values = new ContentValues();
-        values.put(MediaStore.Images.Media.DISPLAY_NAME, fileName);
-        values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            values.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/ExploradorVisual");
-            values.put(MediaStore.Images.Media.IS_PENDING, 1);
-        }
-
-        Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
-
-        if (uri != null) {
-            try (OutputStream out = getContentResolver().openOutputStream(uri)) {
-                if (out != null) {
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out);
-                    Toast.makeText(this, "¡Foto guardada en la galería!", Toast.LENGTH_SHORT).show();
-                }
-            } catch (IOException e) {
-                // En una app real, este error debería registrarse
-            }
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                values.clear();
-                values.put(MediaStore.Images.Media.IS_PENDING, 0);
-                getContentResolver().update(uri, values, null, null);
-            }
-        }
-    }
-
-    private final ActivityResultLauncher<Intent> galleryLauncher = registerForActivityResult(
-            new ActivityResultContracts.StartActivityForResult(),
-            result -> {
-                if (result.getResultCode() == RESULT_OK) {
-                    Intent data = result.getData();
-                    if (data != null && data.getData() != null) {
-                        Uri imageUri = data.getData();
-                        try {
-                            Bitmap imageBitmap = uriToBitmap(imageUri);
-                            mostrarImagenYProcesar(imageBitmap);
-                        } catch (IOException e) {
-                            Toast.makeText(this, "No se pudo cargar la imagen", Toast.LENGTH_SHORT).show();
-                        }
-                    }
+                } else {
+                    Log.d(TAG, "No se seleccionó ninguna imagen.");
                 }
             });
 
@@ -151,20 +116,21 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        // --- Inicialización de vistas ---
         previewView = findViewById(R.id.previewView);
-        tvResultados = findViewById(R.id.tvResultados);
-        tvDatoCurioso = findViewById(R.id.tvDatoCurioso);
-        cardResultados = findViewById(R.id.cardResultados);
+        ivImagen = findViewById(R.id.ivImagen);
+        btnCloseImage = findViewById(R.id.btnCloseImage);
         btnAbrirGaleria = findViewById(R.id.btnAbrirGaleria);
         btnTomarFoto = findViewById(R.id.btnTomarFoto);
         btnAnalizar = findViewById(R.id.btnAnalizar);
-        ivImagen = findViewById(R.id.ivImagen);
+        tvResultados = findViewById(R.id.tvResultados);
+        tvDatoCurioso = findViewById(R.id.tvDatoCurioso);
+        cardResultados = findViewById(R.id.cardResultados);
 
-
-
+        // --- Configuración de lógica ---
         cameraExecutor = Executors.newSingleThreadExecutor();
-
         tts = new TextToSpeech(this, this);
+
         ImageLabelerOptions options = new ImageLabelerOptions.Builder()
                 .setConfidenceThreshold(CONFIDENCE_THRESHOLD)
                 .build();
@@ -173,11 +139,13 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         crearMapaDeTraducciones();
         crearMapaDeDatosCuriosos();
 
+        // --- Asignación de listeners a los botones ---
         btnAnalizar.setOnClickListener(v -> toggleAnalysis());
+        btnTomarFoto.setOnClickListener(v -> takePhoto());
+        btnAbrirGaleria.setOnClickListener(v -> openGallery());
+        btnCloseImage.setOnClickListener(v -> setAppState(AppState.LIVE_CAMERA));
 
         handleCameraPermission();
-        btnTomarFoto.setOnClickListener(v -> handleCameraPermission());
-        btnAbrirGaleria.setOnClickListener(v -> handleGalleryPermission());
     }
 
     private void handleCameraPermission() {
@@ -188,123 +156,58 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         }
     }
 
-    private void handleGalleryPermission() {
-        String permission = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-                ? Manifest.permission.READ_MEDIA_IMAGES
-                : Manifest.permission.READ_EXTERNAL_STORAGE;
-
-        if (ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED) {
-            abrirGaleria();
-        } else {
-            requestPermissionLauncher.launch(permission);
-        }
-    }
-
-    private void abrirGaleria() {
-        Intent intent = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
-        galleryLauncher.launch(intent);
-    }
-
     private void startCamera() {
         ListenableFuture<ProcessCameraProvider> cameraProviderFuture = ProcessCameraProvider.getInstance(this);
-
         cameraProviderFuture.addListener(() -> {
             try {
                 cameraProvider = cameraProviderFuture.get();
                 bindCameraUseCases();
             } catch (ExecutionException | InterruptedException e) {
-                Log.e("MainActivity", "Error al iniciar la cámara", e);
-                Toast.makeText(this, "No se pudo iniciar la cámara", Toast.LENGTH_SHORT).show();
+                Log.e(TAG, "Error al iniciar la cámara", e);
             }
         }, ContextCompat.getMainExecutor(this));
     }
 
-    private Bitmap uriToBitmap(Uri uri) throws IOException {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            return ImageDecoder.decodeBitmap(ImageDecoder.createSource(getContentResolver(), uri));
-        } else {
-            return MediaStore.Images.Media.getBitmap(getContentResolver(), uri);
-        }
-    }
-
-    private void mostrarImagenYProcesar(Bitmap bitmap) {
-        ivImagen.setImageBitmap(bitmap);
-        cardImagen.setVisibility(View.VISIBLE);
-        tvResultados.setText("Pensando...");
-        tvDatoCurioso.setVisibility(View.GONE);
-        cardResultados.setVisibility(View.VISIBLE);
-        procesarImagen(bitmap);
-    }
-
-    private void procesarImagen(Bitmap bitmap) {
-        InputImage image = InputImage.fromBitmap(bitmap, 0);
-        imageLabeler.process(image)
-                .addOnSuccessListener(this::mostrarResultados)
-                .addOnFailureListener(e -> {
-                    String errorMsg = "Algo falló… ¡Inténtalo de nuevo!";
-                    tvResultados.setText(errorMsg);
-                    hablar(errorMsg);
-                });
-    }
-
     private void bindCameraUseCases() {
-        if (cameraProvider == null) {
-            return;
-        }
+        if (cameraProvider == null) return;
 
-        cameraProvider.unbindAll(); // Desvincula casos de uso anteriores
+        cameraProvider.unbindAll(); // Desvincula todo antes de volver a vincular
 
         Preview preview = new Preview.Builder()
                 .setTargetAspectRatio(AspectRatio.RATIO_4_3)
                 .build();
+        preview.setSurfaceProvider(previewView.getSurfaceProvider());
 
         CameraSelector cameraSelector = new CameraSelector.Builder()
                 .requireLensFacing(CameraSelector.LENS_FACING_BACK)
                 .build();
 
-        preview.setSurfaceProvider(previewView.getSurfaceProvider());
+        // Use case para tomar fotos
+        imageCapture = new ImageCapture.Builder()
+                .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+                .build();
 
-        ImageAnalysis imageAnalysis = new ImageAnalysis.Builder()
+        // Use case para análisis en vivo
+        imageAnalysis = new ImageAnalysis.Builder()
                 .setTargetAspectRatio(AspectRatio.RATIO_4_3)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build();
-
         imageAnalysis.setAnalyzer(cameraExecutor, this::processImageProxy);
 
         try {
             if (isAnalysisRunning) {
-                cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalysis);
+                // Si el análisis está activo, vincula los 3 casos de uso
+                cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture, imageAnalysis);
             } else {
-                cameraProvider.bindToLifecycle(this, cameraSelector, preview);
+                // Si no, solo vincula la vista previa y la captura
+                cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture);
             }
         } catch (Exception e) {
-            Log.e("MainActivity", "Error al vincular casos de uso", e);
+            Log.e(TAG, "Error al vincular casos de uso", e);
         }
     }
 
-    private void processImageProxy(ImageProxy imageProxy) {
-        if (!isProcessing.compareAndSet(false, true)) {
-            imageProxy.close();
-            return;
-        }
-
-        @androidx.camera.core.ExperimentalGetImage
-        android.media.Image mediaImage = imageProxy.getImage();
-        if (mediaImage != null) {
-            InputImage image = InputImage.fromMediaImage(mediaImage, imageProxy.getImageInfo().getRotationDegrees());
-
-            imageLabeler.process(image)
-                    .addOnSuccessListener(labels -> runOnUiThread(() -> mostrarResultados(labels)))
-                    .addOnFailureListener(e -> Log.e("MainActivity", "Fallo en el etiquetado de imagen", e))
-                    .addOnCompleteListener(task -> {
-                        isProcessing.set(false);
-                        imageProxy.close();
-                    });
-        } else {
-            isProcessing.set(false);
-            imageProxy.close();
-        }
-    }
+    // --- Lógica de Acciones de Botones ---
 
     private void toggleAnalysis() {
         isAnalysisRunning = !isAnalysisRunning;
@@ -320,13 +223,119 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         }
     }
 
-    private void mostrarResultados(List<ImageLabel> labels) {
-        if (!isAnalysisRunning) return; // No mostrar si el análisis se detuvo
+    private void takePhoto() {
+        if (imageCapture == null) return;
+
+        // Detener análisis en vivo si está corriendo para evitar conflictos
+        if (isAnalysisRunning) {
+            toggleAnalysis();
+        }
+
+        String name = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.US)
+                .format(System.currentTimeMillis());
+        ContentValues contentValues = new ContentValues();
+        contentValues.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
+        contentValues.put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg");
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
+            contentValues.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/VisualExplorer");
+        }
+
+        ImageCapture.OutputFileOptions outputOptions = new ImageCapture.OutputFileOptions
+                .Builder(getContentResolver(), MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+                .build();
+
+        imageCapture.takePicture(outputOptions, ContextCompat.getMainExecutor(this), new ImageCapture.OnImageSavedCallback() {
+            @Override
+            public void onImageSaved(@NonNull ImageCapture.OutputFileResults outputFileResults) {
+                Uri savedUri = outputFileResults.getSavedUri();
+                Toast.makeText(MainActivity.this, "¡Foto guardada!", Toast.LENGTH_SHORT).show();
+                try {
+                    // Muestra la imagen capturada y analízala
+                    InputImage image = InputImage.fromFilePath(MainActivity.this, savedUri);
+                    Bitmap bitmap = MediaStore.Images.Media.getBitmap(getContentResolver(), savedUri);
+                    ivImagen.setImageBitmap(bitmap);
+                    setAppState(AppState.IMAGE_DISPLAY);
+                    analizarImagenEstatica(image);
+                } catch (IOException e) {
+                    Log.e(TAG, "Error al procesar la imagen guardada", e);
+                }
+            }
+            @Override
+            public void onError(@NonNull ImageCaptureException exception) {
+                Log.e(TAG, "Error al tomar la foto: " + exception.getMessage(), exception);
+            }
+        });
+    }
+
+    private void openGallery() {
+        // Detiene el análisis si está corriendo
+        if (isAnalysisRunning) {
+            toggleAnalysis();
+        }
+        pickMedia.launch(new PickVisualMediaRequest.Builder()
+                .setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly.INSTANCE)
+                .build());
+    }
+
+    // --- Lógica de Análisis ---
+
+    private void processImageProxy(ImageProxy imageProxy) { // Para análisis en vivo
+        if (!isProcessing.compareAndSet(false, true)) {
+            imageProxy.close();
+            return;
+        }
+
+        @androidx.camera.core.ExperimentalGetImage
+        android.media.Image mediaImage = imageProxy.getImage();
+        if (mediaImage != null) {
+            InputImage image = InputImage.fromMediaImage(mediaImage, imageProxy.getImageInfo().getRotationDegrees());
+            imageLabeler.process(image)
+                    .addOnSuccessListener(labels -> runOnUiThread(() -> mostrarResultados(labels, true)))
+                    .addOnFailureListener(e -> Log.e(TAG, "Fallo en el etiquetado en vivo", e))
+                    .addOnCompleteListener(task -> {
+                        isProcessing.set(false);
+                        imageProxy.close();
+                    });
+        } else {
+            isProcessing.set(false);
+            imageProxy.close();
+        }
+    }
+
+    private void analizarImagenEstatica(InputImage image) { // Para foto o galería
+        tvResultados.setText("Analizando imagen...");
+        tvDatoCurioso.setVisibility(View.GONE);
+        imageLabeler.process(image)
+                .addOnSuccessListener(labels -> runOnUiThread(() -> mostrarResultados(labels, false)))
+                .addOnFailureListener(e -> {
+                    tvResultados.setText("Error al analizar la imagen.");
+                    Log.e(TAG, "Fallo en el etiquetado de imagen estática", e);
+                });
+    }
+
+
+    // --- UI y Resultados ---
+
+    private void setAppState(AppState state) {
+        if (state == AppState.LIVE_CAMERA) {
+            previewView.setVisibility(View.VISIBLE);
+            ivImagen.setVisibility(View.GONE);
+            btnCloseImage.setVisibility(View.GONE);
+            tvResultados.setText("Elige una opción abajo");
+            tvDatoCurioso.setVisibility(View.GONE);
+        } else { // IMAGE_DISPLAY
+            previewView.setVisibility(View.GONE);
+            ivImagen.setVisibility(View.VISIBLE);
+            btnCloseImage.setVisibility(View.VISIBLE);
+        }
+    }
+
+    private void mostrarResultados(List<ImageLabel> labels, boolean esEnVivo) {
+        if (esEnVivo && !isAnalysisRunning) return;
 
         tvDatoCurioso.setVisibility(View.GONE);
-
         if (labels.isEmpty()) {
-            tvResultados.setText("¡Uy! No estoy seguro. Sigue apuntando...");
+            tvResultados.setText("¡Uy! No reconozco nada. Intenta de nuevo.");
             return;
         }
 
@@ -337,8 +346,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
         for (ImageLabel label : labels) {
             String textoEnIngles = label.getText();
-            String traduccion = traducciones.getOrDefault(textoEnIngles, textoEnIngles);
-
+            String traduccion = traducciones.getOrDefault(textoEnIngles.toLowerCase(), textoEnIngles);
             sb.append(traduccion).append(" (").append(Math.round(label.getConfidence() * 100)).append("%)\n");
 
             if (esElPrimero) {
@@ -357,8 +365,6 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         hablar(primerResultadoParaHablar + " " + datoCuriosoParaHablar);
     }
 
-    // --- MÉTODOS EXISTENTES (OnInit, hablar, crearMapas, onDestroy) ---
-    // No necesitas cambiar los siguientes métodos. Cópialos tal cual.
 
     @Override
     public void onInit(int status) {
@@ -381,7 +387,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
     private void crearMapaDeTraducciones() {
         traducciones = new HashMap<>();
-        // ... (tu código de traducciones aquí, no cambia)
+        // Animales
         traducciones.put("Animal", "Animal");
         traducciones.put("Dog", "Perro");
         traducciones.put("Cat", "Gato");
@@ -398,6 +404,8 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         traducciones.put("Bear", "Oso");
         traducciones.put("Elephant", "Elefante");
         traducciones.put("Monkey", "Mono");
+
+        // Personas y Ropa
         traducciones.put("Person", "Persona");
         traducciones.put("Man", "Hombre");
         traducciones.put("Woman", "Mujer");
@@ -413,6 +421,8 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         traducciones.put("Footwear", "Calzado");
         traducciones.put("Sneakers", "Zapatillas");
         traducciones.put("Glasses", "Gafas");
+
+        // Comida y Bebida
         traducciones.put("Food", "Comida");
         traducciones.put("Fruit", "Fruta");
         traducciones.put("Apple", "Manzana");
@@ -427,6 +437,8 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         traducciones.put("Drink", "Bebida");
         traducciones.put("Water", "Agua");
         traducciones.put("Juice", "Zumo");
+
+        // Objetos y Juguetes
         traducciones.put("Toy", "Juguete");
         traducciones.put("Doll", "Muñeca");
         traducciones.put("Action figure", "Figura de acción");
@@ -443,6 +455,8 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         traducciones.put("Bed", "Cama");
         traducciones.put("Sofa", "Sofá");
         traducciones.put("Television", "Televisión");
+
+        // Naturaleza
         traducciones.put("Plant", "Planta");
         traducciones.put("Tree", "Árbol");
         traducciones.put("Flower", "Flor");
@@ -453,6 +467,8 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         traducciones.put("Mountain", "Montaña");
         traducciones.put("Sea", "Mar");
         traducciones.put("Beach", "Playa");
+
+        // Vehículos
         traducciones.put("Vehicle", "Vehículo");
         traducciones.put("Car", "Coche");
         traducciones.put("Bus", "Autobús");
@@ -462,6 +478,8 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         traducciones.put("Airplane", "Avión");
         traducciones.put("Train", "Tren");
         traducciones.put("Boat", "Barco");
+
+        // Otros
         traducciones.put("Building", "Edificio");
         traducciones.put("House", "Casa");
         traducciones.put("Smile", "Sonrisa");
@@ -469,7 +487,6 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
     private void crearMapaDeDatosCuriosos() {
         datosCuriosos = new HashMap<>();
-        // ... (tu código de datos curiosos aquí, no cambia)
         datosCuriosos.put("Dog", "¿Sabías que los perros pueden oler cosas que nosotros ni imaginamos?");
         datosCuriosos.put("Cat", "¿Sabías que los gatos duermen casi todo el día para guardar energía?");
         datosCuriosos.put("Bird", "¿Sabías que los pájaros son familia de los dinosaurios?");
@@ -494,3 +511,4 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         cameraExecutor.shutdown();
     }
 }
+
