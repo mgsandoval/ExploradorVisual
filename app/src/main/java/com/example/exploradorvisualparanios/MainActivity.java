@@ -1,12 +1,21 @@
 package com.example.exploradorvisualparanios;
 
 import android.Manifest;
+import android.content.ContentValues;
+import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.ImageDecoder;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.provider.MediaStore;
 import android.speech.tts.TextToSpeech;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
+import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -31,6 +40,8 @@ import com.google.mlkit.vision.label.ImageLabeler;
 import com.google.mlkit.vision.label.ImageLabeling;
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions;
 
+import java.io.IOException;
+import java.io.OutputStream;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -48,7 +59,11 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     private TextView tvResultados;
     private TextView tvDatoCurioso;
     private CardView cardResultados;
-    private Button btnAnalizar;
+    private ImageButton btnTomarFoto;
+    private ImageButton btnAbrirGaleria;
+    private ImageButton btnAnalizar;
+    private ImageView ivImagen;
+    private CardView cardImagen;
 
     private ImageLabeler imageLabeler;
     private Map<String, String> traducciones;
@@ -69,6 +84,67 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                     Toast.makeText(this, "¡Necesitamos permiso de la cámara para funcionar!", Toast.LENGTH_LONG).show();
                 }
             });
+    private final ActivityResultLauncher<Intent> cameraLauncher = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(),
+            result -> {
+                if (result.getResultCode() == RESULT_OK) {
+                    Intent data = result.getData();
+                    if (data != null && data.getExtras() != null) {
+                        Bitmap imageBitmap = (Bitmap) data.getExtras().get("data");
+                        if (imageBitmap != null) {
+                            mostrarImagenYProcesar(imageBitmap);
+                            guardarImagenEnGaleria(imageBitmap);
+                        }
+                    }
+                }
+            });
+
+    private void guardarImagenEnGaleria(Bitmap bitmap) {
+        String fileName = "Explorador_" + System.currentTimeMillis() + ".jpg";
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.Images.Media.DISPLAY_NAME, fileName);
+        values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            values.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/ExploradorVisual");
+            values.put(MediaStore.Images.Media.IS_PENDING, 1);
+        }
+
+        Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+
+        if (uri != null) {
+            try (OutputStream out = getContentResolver().openOutputStream(uri)) {
+                if (out != null) {
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out);
+                    Toast.makeText(this, "¡Foto guardada en la galería!", Toast.LENGTH_SHORT).show();
+                }
+            } catch (IOException e) {
+                // En una app real, este error debería registrarse
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                values.clear();
+                values.put(MediaStore.Images.Media.IS_PENDING, 0);
+                getContentResolver().update(uri, values, null, null);
+            }
+        }
+    }
+
+    private final ActivityResultLauncher<Intent> galleryLauncher = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(),
+            result -> {
+                if (result.getResultCode() == RESULT_OK) {
+                    Intent data = result.getData();
+                    if (data != null && data.getData() != null) {
+                        Uri imageUri = data.getData();
+                        try {
+                            Bitmap imageBitmap = uriToBitmap(imageUri);
+                            mostrarImagenYProcesar(imageBitmap);
+                        } catch (IOException e) {
+                            Toast.makeText(this, "No se pudo cargar la imagen", Toast.LENGTH_SHORT).show();
+                        }
+                    }
+                }
+            });
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -79,7 +155,12 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         tvResultados = findViewById(R.id.tvResultados);
         tvDatoCurioso = findViewById(R.id.tvDatoCurioso);
         cardResultados = findViewById(R.id.cardResultados);
+        btnAbrirGaleria = findViewById(R.id.btnAbrirGaleria);
+        btnTomarFoto = findViewById(R.id.btnTomarFoto);
         btnAnalizar = findViewById(R.id.btnAnalizar);
+        ivImagen = findViewById(R.id.ivImagen);
+
+
 
         cameraExecutor = Executors.newSingleThreadExecutor();
 
@@ -95,6 +176,8 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         btnAnalizar.setOnClickListener(v -> toggleAnalysis());
 
         handleCameraPermission();
+        btnTomarFoto.setOnClickListener(v -> handleCameraPermission());
+        btnAbrirGaleria.setOnClickListener(v -> handleGalleryPermission());
     }
 
     private void handleCameraPermission() {
@@ -103,6 +186,23 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         } else {
             requestPermissionLauncher.launch(Manifest.permission.CAMERA);
         }
+    }
+
+    private void handleGalleryPermission() {
+        String permission = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                ? Manifest.permission.READ_MEDIA_IMAGES
+                : Manifest.permission.READ_EXTERNAL_STORAGE;
+
+        if (ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED) {
+            abrirGaleria();
+        } else {
+            requestPermissionLauncher.launch(permission);
+        }
+    }
+
+    private void abrirGaleria() {
+        Intent intent = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+        galleryLauncher.launch(intent);
     }
 
     private void startCamera() {
@@ -117,6 +217,34 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                 Toast.makeText(this, "No se pudo iniciar la cámara", Toast.LENGTH_SHORT).show();
             }
         }, ContextCompat.getMainExecutor(this));
+    }
+
+    private Bitmap uriToBitmap(Uri uri) throws IOException {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            return ImageDecoder.decodeBitmap(ImageDecoder.createSource(getContentResolver(), uri));
+        } else {
+            return MediaStore.Images.Media.getBitmap(getContentResolver(), uri);
+        }
+    }
+
+    private void mostrarImagenYProcesar(Bitmap bitmap) {
+        ivImagen.setImageBitmap(bitmap);
+        cardImagen.setVisibility(View.VISIBLE);
+        tvResultados.setText("Pensando...");
+        tvDatoCurioso.setVisibility(View.GONE);
+        cardResultados.setVisibility(View.VISIBLE);
+        procesarImagen(bitmap);
+    }
+
+    private void procesarImagen(Bitmap bitmap) {
+        InputImage image = InputImage.fromBitmap(bitmap, 0);
+        imageLabeler.process(image)
+                .addOnSuccessListener(this::mostrarResultados)
+                .addOnFailureListener(e -> {
+                    String errorMsg = "Algo falló… ¡Inténtalo de nuevo!";
+                    tvResultados.setText(errorMsg);
+                    hablar(errorMsg);
+                });
     }
 
     private void bindCameraUseCases() {
@@ -181,15 +309,14 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     private void toggleAnalysis() {
         isAnalysisRunning = !isAnalysisRunning;
         if (isAnalysisRunning) {
-            btnAnalizar.setText("Detener Análisis");
-            tvResultados.setText("Analizando...");
-            bindCameraUseCases(); // Re-vincula con el análisis de imagen
+            btnAnalizar.setImageResource(android.R.drawable.ic_media_pause); // Cambia a ícono de pausa
+            tvResultados.setText("Analizando en vivo...");
+            bindCameraUseCases(); // Re-vincula para añadir el análisis
         } else {
-            btnAnalizar.setText("Iniciar Análisis");
-            tvResultados.setText("Análisis detenido. Apunta la cámara a un objeto.");
-            tvDatoCurioso.setVisibility(View.GONE);
+            btnAnalizar.setImageResource(android.R.drawable.ic_media_play); // Cambia a ícono de play
+            tvResultados.setText("Análisis detenido");
             isProcessing.set(false);
-            bindCameraUseCases(); // Re-vincula sin el análisis de imagen
+            bindCameraUseCases(); // Re-vincula para quitar el análisis y ahorrar batería
         }
     }
 

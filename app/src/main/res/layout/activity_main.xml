@@ -8,23 +8,49 @@
     android:orientation="vertical"
     tools:context=".MainActivity">
 
-    <!-- 1. Contenedor para la vista de la cámara -->
-    <!-- Usamos un FrameLayout para que la cámara ocupe el espacio disponible -->
-    <FrameLayout
+    <!-- Contenedor principal para la cámara y la imagen estática -->
+    <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:padding="16dp">
+        android:layout_weight="1">
 
-        <!-- ESTE ES EL CAMBIO PRINCIPAL: PreviewView para mostrar la cámara -->
+        <!-- Vista para la cámara en tiempo real (siempre está debajo) -->
         <androidx.camera.view.PreviewView
             android:id="@+id/previewView"
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
 
-    </FrameLayout>
+        <!-- ImageView para mostrar la foto tomada o seleccionada (inicialmente oculto) -->
+        <ImageView
+            android:id="@+id/ivImagen"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@android:color/black"
+            android:scaleType="fitCenter"
+            android:visibility="gone"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            tools:srcCompat="@tools:sample/avatars" />
 
-    <!-- 2. Contenedor para los controles y resultados en la parte inferior -->
+        <!-- Botón para cerrar la vista de imagen y volver a la cámara (inicialmente oculto) -->
+        <ImageButton
+            android:id="@+id/btnCloseImage"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginTop="16dp"
+            android:layout_marginEnd="16dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_menu_close_clear_cancel"
+            android:visibility="gone"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:tint="@android:color/white" />
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+    <!-- Contenedor para los resultados -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -32,9 +58,8 @@
         android:orientation="vertical"
         android:paddingStart="24dp"
         android:paddingEnd="24dp"
-        android:paddingBottom="24dp">
+        android:paddingBottom="16dp">
 
-        <!-- Mantenemos tu tarjeta de resultados con su estilo -->
         <androidx.cardview.widget.CardView
             android:id="@+id/cardResultados"
             android:layout_width="match_parent"
@@ -46,7 +71,7 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:minHeight="120dp"
+                android:minHeight="100dp"
                 android:orientation="vertical"
                 android:padding="16dp">
 
@@ -56,11 +81,10 @@
                     android:layout_height="wrap_content"
                     android:fontFamily="sans-serif-medium"
                     android:gravity="center"
-                    android:text="Apunta la cámara a un objeto"
+                    android:text="Elige una opción abajo"
                     android:textColor="#000000"
                     android:textSize="20sp"
-                    android:textStyle="bold"
-                    tools:text="Un perro\nUna pelota\nCésped" />
+                    android:textStyle="bold" />
 
                 <TextView
                     android:id="@+id/tvDatoCurioso"
@@ -72,29 +96,53 @@
                     android:textColor="#333333"
                     android:textSize="16sp"
                     android:textStyle="italic"
-                    android:visibility="gone"
-                    tools:text="¿Sabías que los perros tienen un súper olfato?" />
+                    android:visibility="gone" />
 
             </LinearLayout>
         </androidx.cardview.widget.CardView>
+    </LinearLayout>
 
-        <!-- CAMBIO: Reemplazamos los botones de foto/galería por uno solo de control -->
-        <Button
-            android:id="@+id/btnAnalizar"
-            style="@style/Widget.AppCompat.Button.Colored"
-            android:layout_width="wrap_content"
+    <!-- 3. Contenedor para los botones de acción -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="24dp">
+
+        <!-- Botón para abrir galería -->
+        <ImageButton
+            android:id="@+id/btnAbrirGaleria"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:fontFamily="sans-serif-medium"
-            android:paddingLeft="30dp"
-            android:paddingTop="15dp"
-            android:paddingRight="30dp"
-            android:paddingBottom="15dp"
-            android:text="Iniciar Análisis"
-            android:textAllCaps="false"
-            android:textSize="18sp"
-            app:backgroundTint="#FF6347"
-            app:cornerRadius="20dp" />
+            android:layout_weight="1"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Abrir Galería"
+            android:src="@android:drawable/ic_menu_gallery"
+            app:tint="#FFFFFF" />
+
+        <!-- Botón principal para tomar foto -->
+        <ImageButton
+            android:id="@+id/btnTomarFoto"
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:background="@drawable/capture_button_background"
+            android:contentDescription="Tomar Foto"
+            android:scaleType="centerInside"
+            android:src="@android:drawable/ic_menu_camera" />
+
+        <!-- Botón para iniciar/detener análisis en vivo -->
+        <ImageButton
+            android:id="@+id/btnAnalizar"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Iniciar Análisis en Vivo"
+            android:src="@android:drawable/ic_media_play"
+            app:tint="#FFFFFF" />
 
     </LinearLayout>
 
