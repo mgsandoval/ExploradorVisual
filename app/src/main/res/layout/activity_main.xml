@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/gradient_background"
+    android:orientation="vertical"
+    tools:context=".MainActivity">
+
+    <!-- 1. Contenedor para la vista de la cámara -->
+    <!-- Usamos un FrameLayout para que la cámara ocupe el espacio disponible -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:padding="16dp">
+
+        <!-- ESTE ES EL CAMBIO PRINCIPAL: PreviewView para mostrar la cámara -->
+        <androidx.camera.view.PreviewView
+            android:id="@+id/previewView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+    </FrameLayout>
+
+    <!-- 2. Contenedor para los controles y resultados en la parte inferior -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:paddingStart="24dp"
+        android:paddingEnd="24dp"
+        android:paddingBottom="24dp">
+
+        <!-- Mantenemos tu tarjeta de resultados con su estilo -->
+        <androidx.cardview.widget.CardView
+            android:id="@+id/cardResultados"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:cardBackgroundColor="#FFD700"
+            app:cardCornerRadius="20dp"
+            app:cardElevation="6dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="120dp"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:id="@+id/tvResultados"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="sans-serif-medium"
+                    android:gravity="center"
+                    android:text="Apunta la cámara a un objeto"
+                    android:textColor="#000000"
+                    android:textSize="20sp"
+                    android:textStyle="bold"
+                    tools:text="Un perro\nUna pelota\nCésped" />
+
+                <TextView
+                    android:id="@+id/tvDatoCurioso"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:fontFamily="sans-serif"
+                    android:gravity="center"
+                    android:textColor="#333333"
+                    android:textSize="16sp"
+                    android:textStyle="italic"
+                    android:visibility="gone"
+                    tools:text="¿Sabías que los perros tienen un súper olfato?" />
+
+            </LinearLayout>
+        </androidx.cardview.widget.CardView>
+
+        <!-- CAMBIO: Reemplazamos los botones de foto/galería por uno solo de control -->
+        <Button
+            android:id="@+id/btnAnalizar"
+            style="@style/Widget.AppCompat.Button.Colored"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:fontFamily="sans-serif-medium"
+            android:paddingLeft="30dp"
+            android:paddingTop="15dp"
+            android:paddingRight="30dp"
+            android:paddingBottom="15dp"
+            android:text="Iniciar Análisis"
+            android:textAllCaps="false"
+            android:textSize="18sp"
+            app:backgroundTint="#FF6347"
+            app:cornerRadius="20dp" />
+
+    </LinearLayout>
+
+</LinearLayout>
