@@ -156,11 +156,11 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                 .requireWifi()
                 .build();
 
-        translatorEnToEs.downloadModelIfNeeded(conditions)
-                .addOnSuccessListener(unused ->
-                        Toast.makeText(this, "Modelo de traducción listo", Toast.LENGTH_SHORT).show())
-                .addOnFailureListener(e ->
-                        Toast.makeText(this, "Error al descargar modelo de traducción", Toast.LENGTH_SHORT).show());
+//        translatorEnToEs.downloadModelIfNeeded(conditions)
+//                .addOnSuccessListener(unused ->
+//                        Toast.makeText(this, "Modelo de traducción listo", Toast.LENGTH_SHORT).show())
+//                .addOnFailureListener(e ->
+//                        Toast.makeText(this, "Error al descargar modelo de traducción", Toast.LENGTH_SHORT).show());
     }
 
     private void handleCameraPermission() {
